@@ -1,0 +1,61 @@
+from flask import Flask, redirect, url_for, session, request, render_template
+from authlib.integrations.flask_client import OAuth
+from sklearn.externals import joblib
+import os
+
+app = Flask(__name__)
+app.secret_key = 'your_secret_key'
+
+# OAuth Setup
+oauth = OAuth(app)
+github = oauth.register(
+    name='github',
+    client_id='Your-GitHub-Client-ID',
+    client_secret='Your-GitHub-Client-Secret',
+    access_token_url='https://github.com/login/oauth/access_token',
+    authorize_url='https://github.com/login/oauth/authorize',
+    api_base_url='https://api.github.com/',
+    client_kwargs={'scope': 'user:email'},
+)
+
+# Load pre-trained model
+model = joblib.load("disease_model.pkl")  # Train & save your model first
+
+@app.route('/')
+def homepage():
+    return render_template('index.html')
+
+@app.route('/login')
+def login():
+    return github.authorize_redirect(redirect_uri='/authorize')
+
+@app.route('/authorize')
+def authorize():
+    token = github.authorize_access_token()
+    resp = github.get('user')
+    profile = resp.json()
+    session['user'] = profile['login']
+    return redirect('/predict')
+
+@app.route('/predict', methods=['GET', 'POST'])
+def predict():
+    if 'user' not in session:
+        return redirect('/')
+    
+    if request.method == 'POST':
+        try:
+            data = [float(request.form[key]) for key in request.form]
+            prediction = model.predict([data])
+            return render_template('result.html', prediction=prediction[0])
+        except:
+            return "Invalid input. Try again."
+
+    return render_template('predict.html')
+
+@app.route('/logout')
+def logout():
+    session.clear()
+    return redirect('/')
+
+if __name__ == '__main__':
+    app.run(debug=True)
